@@ -10,11 +10,10 @@ import time
 
 # For Audio Processing and Speech-to-Text
 import av # PyAV, used by streamlit-webrtc
-import librosa # For audio resampling
+from scipy.signal import resample # Replaced librosa for resampling
 
 # Streamlit WebRTC for audio input
-from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase
-from streamlit_webrtc.models import ClientSettings # <--- CORRECTED LINE: Importing from .models
+from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings
 
 # --- Import custom modules ---
 from kokoro_tts import KokoroTTS
@@ -73,13 +72,11 @@ class AudioFrameProcessor(AudioProcessorBase):
         if self.audio_buffer:
             concatenated_audio = np.concatenate(self.audio_buffer)
             try:
-                # Resample audio to WHISPER_SAMPLE_RATE (16kHz) for faster-whisper
-                resampled_audio = librosa.resample(
-                    y=concatenated_audio,
-                    orig_sr=self.input_sample_rate,
-                    target_sr=WHISPER_SAMPLE_RATE
-                )
-                audio_queue.put(resampled_audio) # Put the resampled audio into the queue
+                # Resample audio using scipy.signal.resample
+                num_output_samples = int(len(concatenated_audio) * (WHISPER_SAMPLE_RATE / self.input_sample_rate))
+                resampled_audio = resample(concatenated_audio, num_output_samples)
+                
+                audio_queue.put(resampled_audio.astype(np.float32)) # Ensure float32 type
                 logger.info(f"Recorded audio (original samples: {len(concatenated_audio)}) resampled to {len(resampled_audio)} samples and put into queue.")
             except Exception as e:
                 logger.error(f"Error during audio resampling: {e}", exc_info=True)
@@ -254,7 +251,7 @@ with col2: # Voice Input Section
         audio_processor_factory=AudioFrameProcessor,
         media_stream_constraints={"video": False, "audio": True},
         async_processing=True,
-        client_settings=ClientSettings( # ClientSettings is now imported from streamlit_webrtc.models
+        client_settings=ClientSettings(
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             media_stream_constraints={"video": False, "audio": True},
         )
