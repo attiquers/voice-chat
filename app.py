@@ -10,10 +10,11 @@ import time
 
 # For Audio Processing and Speech-to-Text
 import av # PyAV, used by streamlit-webrtc
-from scipy.signal import resample # Replaced librosa for resampling
+from scipy.signal import resample # Using scipy for resampling
 
 # Streamlit WebRTC for audio input
-from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings
+# Removed ClientSettings import
+from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase
 
 # --- Import custom modules ---
 from kokoro_tts import KokoroTTS
@@ -55,7 +56,8 @@ class AudioFrameProcessor(AudioProcessorBase):
     def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
         """Receives an audio frame from the WebRTC stream and buffers it if recording."""
         if self.is_recording:
-            audio_array = frame.to_ndarray(format="s16", layout="mono").flatten().astype(np.float32) / 32768.0
+            # Removed 'format="s16"' as it causes TypeError in some av versions
+            audio_array = frame.to_ndarray(layout="mono").flatten().astype(np.float32) / 32768.0
             self.audio_buffer.append(audio_array)
         return frame
 
@@ -235,7 +237,7 @@ with col1: # Chat Conversation Section
     if st.button("🗑️ Clear Chat", key="clear_chat_button"):
         st.session_state.chat_history = []
         st.session_state.voice_input_text = ""
-        st.rerun() # Changed from st.experimental_rerun()
+        st.rerun()
 
     # Text input for chat (still available as an alternative to voice)
     text_user_input = st.chat_input("Type your message...")
@@ -263,7 +265,7 @@ with col2: # Voice Input Section
                     webrtc_ctx.audio_processor.stop_recording()
                 st.session_state.recording_active = False
                 st.session_state.processing_audio = True
-                st.rerun() # Changed from st.experimental_rerun()
+                st.rerun()
         else:
             st.info("Microphone is active, ready to record.")
             if st.button("🎤 Start Recording", key="start_record_button"):
@@ -271,7 +273,7 @@ with col2: # Voice Input Section
                     webrtc_ctx.audio_processor.start_recording()
                 st.session_state.recording_active = True
                 st.session_state.processing_audio = False
-                st.rerun() # Changed from st.experimental_rerun()
+                st.rerun()
     else:
         st.warning("Waiting for microphone access...")
 
@@ -293,7 +295,7 @@ with col2: # Voice Input Section
                     transcribed_text_placeholder.warning("No speech detected or transcription was empty.")
                     st.session_state.voice_input_text = ""
                 st.session_state.processing_audio = False
-                st.rerun() # Changed from st.experimental_rerun()
+                st.rerun()
             else:
                 transcribed_text_placeholder.warning("No audio recorded or Speech-to-Text model not loaded.")
                 st.session_state.processing_audio = False

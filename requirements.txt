@@ -1,9 +1,9 @@
 streamlit
 numpy
-av
+av==10.0.0 # <--- Pinned version to resolve to_ndarray() TypeError
 scipy # Added scipy for resampling, replacing librosa
 faster-whisper
-streamlit-webrtc==0.63.0 # <--- Pinned version
+streamlit-webrtc==0.63.0 # Pinned version
 torch
 langchain
 langchain-core
