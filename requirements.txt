@@ -1,10 +1,9 @@
 streamlit
 numpy
 av
-librosa
-soundfile
+scipy # Added scipy for resampling, replacing librosa
 faster-whisper
-streamlit-webrtc
+streamlit-webrtc==0.63.0 # <--- Pinned version
 torch
 langchain
 langchain-core

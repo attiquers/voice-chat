@@ -41,11 +41,6 @@ class FasterWhisperSTT:
             return ""
         
         try:
-            # faster-whisper expects a 1D float32 numpy array at 16kHz
-            # The app.py will ensure the audio is correctly resampled and typed.
-            
-            # Using beam_size=5 is default and good for accuracy. For extreme minimalism/speed, can reduce to 1
-            # But 'base' model with default beam_size is already quite fast.
             segments, info = self.model.transcribe(audio_array, beam_size=5) 
             transcribed_text = " ".join([segment.text for segment in segments]).strip()
             logger.info(f"Transcribed audio to: '{transcribed_text[:70]}...'")

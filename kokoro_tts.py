@@ -11,7 +11,7 @@ try:
     from kokoro_onnx import Kokoro
 except ImportError:
     logger.error("The 'kokoro_onnx' library is not installed. Please install it as per the instructions in the original Gradio app setup.")
-    # You might want to raise an error or provide a mock class
+    # Fallback mock class for local development if kokoro_onnx isn't strictly needed for all tests
     class MockKokoro:
         def __init__(self, *args, **kwargs):
             logger.warning("Using MockKokoro as kokoro_onnx is not found.")

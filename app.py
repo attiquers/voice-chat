@@ -13,6 +13,7 @@ import av # PyAV, used by streamlit-webrtc
 from scipy.signal import resample # Replaced librosa for resampling
 
 # Streamlit WebRTC for audio input
+# Pinning to a specific version in requirements.txt should ensure this works
 from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings
 
 # --- Import custom modules ---
