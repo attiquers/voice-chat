@@ -13,9 +13,8 @@ import av # PyAV, used by streamlit-webrtc
 import librosa # For audio resampling
 
 # Streamlit WebRTC for audio input
-# CORRECTED IMPORT PATH FOR ClientSettings
-from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase
-from streamlit_webrtc.webrtc_utils import ClientSettings # <--- CORRECTED LINE
+# CORRECTED IMPORT PATH FOR ClientSettings - now importing directly from top-level
+from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings # <--- CORRECTED LINE
 
 # --- Import custom modules ---
 from kokoro_tts import KokoroTTS
@@ -255,7 +254,7 @@ with col2: # Voice Input Section
         audio_processor_factory=AudioFrameProcessor,
         media_stream_constraints={"video": False, "audio": True},
         async_processing=True,
-        client_settings=ClientSettings( # ClientSettings is now correctly imported
+        client_settings=ClientSettings( # ClientSettings is now imported directly from streamlit_webrtc
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             media_stream_constraints={"video": False, "audio": True},
         )
