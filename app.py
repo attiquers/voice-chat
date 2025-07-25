@@ -13,7 +13,9 @@ import av # PyAV, used by streamlit-webrtc
 import librosa # For audio resampling
 
 # Streamlit WebRTC for audio input
-from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings
+# CORRECTED IMPORT PATH FOR ClientSettings
+from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase
+from streamlit_webrtc.webrtc_utils import ClientSettings # <--- CORRECTED LINE
 
 # --- Import custom modules ---
 from kokoro_tts import KokoroTTS
@@ -38,8 +40,6 @@ WHISPER_SAMPLE_RATE = 16000 # Sample rate expected by Whisper
 WEBRTC_DEFAULT_SAMPLE_RATE = 48000 # Default sample rate from streamlit-webrtc
 
 # --- Global Queue for Audio Processing ---
-# This queue is used to pass recorded audio data from the WebRTC audio processor
-# (which runs in a separate thread) to the main Streamlit thread for transcription.
 audio_queue = queue.Queue()
 
 # --- Audio Processor for WebRTC ---
@@ -255,7 +255,7 @@ with col2: # Voice Input Section
         audio_processor_factory=AudioFrameProcessor,
         media_stream_constraints={"video": False, "audio": True},
         async_processing=True,
-        client_settings=ClientSettings(
+        client_settings=ClientSettings( # ClientSettings is now correctly imported
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             media_stream_constraints={"video": False, "audio": True},
         )
