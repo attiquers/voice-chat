@@ -1,0 +1,7 @@
+streamlit
+numpy
+ollama
+langchain
+langchain-core
+langchain-community
+kokoro-onnx
