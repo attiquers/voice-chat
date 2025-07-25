@@ -1,6 +1,11 @@
 streamlit
 numpy
-#ollama
+av
+librosa
+soundfile
+faster-whisper
+streamlit-webrtc
+torch
 langchain
 langchain-core
 langchain-community
