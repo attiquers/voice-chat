@@ -3,7 +3,7 @@ import streamlit as st
 import os
 import logging
 import numpy as np
-import ollama
+# No direct 'import ollama' as we are using Gemini API now
 from kokoro_tts import KokoroTTS # Assuming kokoro_tts.py is in the same directory
 
 # LangChain imports
@@ -13,18 +13,20 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from typing import Iterator, List, Dict, Any
 
+# Import Google Gemini integration for LangChain
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 # --- Configure logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:latest")
 SAMPLE_RATE = 24000
 INITIAL_SILENCE_DURATION = 0.1 # seconds
 INITIAL_SILENCE_SAMPLES = int(SAMPLE_RATE * INITIAL_SILENCE_DURATION)
 INITIAL_SILENCE = np.zeros(INITIAL_SILENCE_SAMPLES, dtype=np.float32)
 
-# --- Initialize Models ---
+# --- Initialize Kokoro TTS (cached for performance) ---
 @st.cache_resource
 def initialize_kokoro_tts():
     logger.info("Initializing Kokoro TTS...")
@@ -48,48 +50,33 @@ def initialize_kokoro_tts():
 
 kokoro_tts = initialize_kokoro_tts()
 
+# --- Initialize Gemini LLM (cached for performance) ---
+# GOOGLE_API_KEY will be loaded from .streamlit/secrets.toml (local) or Streamlit Cloud secrets
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+@st.cache_resource
+def initialize_gemini_llm(api_key: str):
+    if not api_key:
+        logger.error("GOOGLE_API_KEY is not set. Gemini LLM cannot be initialized.")
+        return None
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-pro",  # You can choose other models like "gemini-1.5-pro", "gemini-1.5-flash"
+            temperature=0.7,
+            streaming=True,
+            google_api_key=api_key
+        )
+        logger.info("Gemini LLM initialized successfully.")
+        return llm
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini LLM: {e}", exc_info=True)
+        st.error("Error initializing Gemini LLM. Please check your GOOGLE_API_KEY and model access.")
+        return None
+
+llm_stream_instance = initialize_gemini_llm(GOOGLE_API_KEY)
+
+
 # --- LangChain Components ---
-
-# Custom Ollama LLM wrapper to integrate with LangChain's Runnable interface
-class OllamaStreamChatModel:
-    def __init__(self, model_name: str):
-        self.model_name = model_name
-
-    def stream(self, prompt_value: Any) -> Iterator[str]:
-        messages = prompt_value.to_messages()
-
-        context_parts = []
-        for msg in messages[:-1]:
-            if isinstance(msg, HumanMessage):
-                context_parts.append(f"Human: {msg.content}")
-            elif isinstance(msg, AIMessage):
-                context_parts.append(f"Assistant: {msg.content}")
-            
-        current_user_message = ""
-        if messages and isinstance(messages[-1], HumanMessage):
-            current_user_message = messages[-1].content
-            
-        full_context = "\n".join(context_parts)
-        
-        system_instruction_prefix = ""
-        if messages and isinstance(messages[0], BaseMessage) and hasattr(messages[0], 'type') and messages[0].type == 'system':
-            system_instruction_prefix = messages[0].content + "\n"
-
-        final_ollama_prompt = f"{system_instruction_prefix}{full_context}\nHuman: {current_user_message}\nAssistant:"
-        
-        logger.info(f"Ollama streaming with prompt preview: {final_ollama_prompt[:200]}...")
-        try:
-            stream = ollama.generate(model=self.model_name, prompt=final_ollama_prompt, stream=True)
-            for chunk in stream:
-                token = chunk.get("response", "")
-                if token:
-                    yield token
-        except Exception as e:
-            logger.error(f"Error in Ollama stream: {e}", exc_info=True)
-            yield f"Error: {str(e)}"
-
-# Instantiate your custom Ollama LLM wrapper
-ollama_llm_stream_instance = OllamaStreamChatModel(model_name=OLLAMA_MODEL)
 
 # Prompt Template: LangChain handles message roles and history
 prompt_template = ChatPromptTemplate.from_messages(
@@ -116,42 +103,65 @@ def _synthesize_text_chunk(text_chunk: str) -> np.ndarray:
         return np.array([])
 
 def _process_text_for_audio(text_stream: Iterator[str]) -> Iterator[Dict[str, Any]]:
+    """
+    Processes a stream of text tokens, identifies completed sentences/lines, and synthesizes audio.
+    Yields dictionaries containing either 'text_token' or 'audio_chunk' for downstream processing.
+    """
     accumulated_text = ""
+    # Define common sentence-ending punctuation
+    sentence_delimiters = ['.', '!', '?', '\n']
+
     for token in text_stream:
         accumulated_text += token
         
         yield {"type": "text_token", "content": token}
 
-        if '\n' in token:
-            lines = accumulated_text.split('\n')
-            completed_lines = lines[:-1]
-            accumulated_text = lines[-1]
+        # Check if the current token completes a sentence or line
+        if any(delimiter in token for delimiter in sentence_delimiters):
+            # Split the accumulated text into potential sentences
+            # This is a simple split; more advanced NLP could be used for better sentence boundary detection
+            
+            # Find the last delimiter to split only completed parts
+            last_delimiter_idx = -1
+            for delimiter in reversed(sentence_delimiters):
+                if delimiter in accumulated_text:
+                    idx = accumulated_text.rfind(delimiter)
+                    if idx > last_delimiter_idx:
+                        last_delimiter_idx = idx
 
-            for line in completed_lines:
-                line_text = line.strip()
+            if last_delimiter_idx != -1:
+                # Extract the completed part (including the delimiter)
+                completed_part = accumulated_text[:last_delimiter_idx + 1]
+                # Keep the remainder for the next accumulation
+                accumulated_text = accumulated_text[last_delimiter_idx + 1:]
+
+                line_text = completed_part.strip()
                 if line_text:
-                    logger.info(f"Processing completed line for audio: '{line_text}'")
+                    logger.info(f"Processing completed chunk for audio: '{line_text}'")
                     audio_chunk = _synthesize_text_chunk(line_text)
                     if audio_chunk.size > 0:
                         yield {"type": "audio_chunk", "content": audio_chunk}
 
+    # After the stream ends, process any remaining accumulated text
     if accumulated_text.strip():
         final_line_text = accumulated_text.strip()
-        logger.info(f"Processing final incomplete line for audio: '{final_line_text}'")
+        logger.info(f"Processing final incomplete chunk for audio: '{final_line_text}'")
         final_audio_chunk = _synthesize_text_chunk(final_line_text)
         if final_audio_chunk.size > 0:
             yield {"type": "audio_chunk", "content": final_audio_chunk}
 
 # Define the main LangChain chain
-main_chain = (
-    RunnablePassthrough.assign(
-        chat_history=lambda x: [HumanMessage(content=msg["content"]) if msg["role"] == "user" else AIMessage(content=msg["content"]) for msg in x["chat_history"]]
+main_chain = None
+if llm_stream_instance: # Only build the chain if LLM was initialized successfully
+    main_chain = (
+        RunnablePassthrough.assign(
+            chat_history=lambda x: [HumanMessage(content=msg["content"]) if msg["role"] == "user" else AIMessage(content=msg["content"]) for msg in x["chat_history"]]
+        )
+        | prompt_template
+        | llm_stream_instance # Direct invocation of the LangChain LLM
+        | StrOutputParser()
+        | RunnableLambda(_process_text_for_audio)
     )
-    | prompt_template
-    | RunnableLambda(ollama_llm_stream_instance.stream)
-    | StrOutputParser()
-    | RunnableLambda(_process_text_for_audio)
-)
 
 # --- Streamlit App ---
 
@@ -160,10 +170,16 @@ st.set_page_config(page_title="Streaming Text-to-Audio Chat", layout="wide")
 st.markdown("# 💬➡️🔊 Streaming Chat (LLM + Kokoro TTS)")
 st.markdown("LLM responds line-by-line, audio plays continuously!")
 
+# Display status of TTS and LLM initialization
 if kokoro_tts is None:
     st.warning("**⚠️ Warning: Kokoro TTS failed to initialize. Audio output will not be available.**")
 else:
     st.success("Kokoro TTS initialized. Audio streaming enabled.")
+
+if llm_stream_instance is None:
+    st.error("**❌ Error: Gemini LLM failed to initialize. Please check your `GOOGLE_API_KEY` in Streamlit Secrets.**")
+else:
+    st.success("Gemini LLM initialized and ready.")
 
 # Initialize chat history in session state if not already present
 if "chat_history" not in st.session_state:
@@ -177,9 +193,8 @@ for message in st.session_state.chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Placeholders for streaming output
+# Placeholder for the audio player (will be updated dynamically)
 audio_placeholder = st.empty()
-chat_message_placeholder = st.empty() # For updating the assistant's message in real-time
 
 # Input box for user message
 user_input = st.chat_input("Type your message here...")
@@ -197,10 +212,12 @@ if user_input:
         st.markdown(user_input)
 
     # Prepare chat history for LangChain input
+    # The current user input is handled by the `input` field of the chain,
+    # so we build chat_history with previous messages only.
     langchain_chat_history_for_input = [
         {"role": msg["role"], "content": msg["content"]}
         for msg in st.session_state.chat_history
-        if msg["role"] != "user" or msg["content"] != user_input # Exclude the current user input from history for the chain's internal processing
+        if msg["role"] != "user" or msg["content"] != user_input # Exclude the current user input from history
     ]
 
     chain_input = {
@@ -209,32 +226,42 @@ if user_input:
     }
 
     current_assistant_response_content = ""
-    st.session_state.accumulated_audio = INITIAL_SILENCE.copy() # Reset audio for new response
+    # Reset audio for the new response
+    st.session_state.accumulated_audio = INITIAL_SILENCE.copy() 
 
     with st.chat_message("assistant"):
         # Create an empty container for the assistant's streaming text
         full_response_text = ""
-        message_placeholder = st.empty()
-        
-        try:
-            for chunk_data in main_chain.stream(chain_input):
-                if chunk_data["type"] == "text_token":
-                    full_response_text += chunk_data["content"]
-                    message_placeholder.markdown(full_response_text + "▌") # Add blinking cursor effect
-                elif chunk_data["type"] == "audio_chunk":
-                    audio_segment = chunk_data["content"]
-                    if audio_segment.size > 0:
-                        st.session_state.accumulated_audio = np.concatenate((st.session_state.accumulated_audio, audio_segment), axis=None)
-                        audio_placeholder.audio(st.session_state.accumulated_audio, sample_rate=SAMPLE_RATE, format='audio/wav')
-                        logger.debug(f"Appended audio. New total audio samples: {st.session_state.accumulated_audio.shape[0]}")
+        message_placeholder = st.empty() # This will hold the markdown content
 
-            # After stream completes, update the final text and audio
-            message_placeholder.markdown(full_response_text) # Remove blinking cursor
-            st.session_state.chat_history.append({"role": "assistant", "content": full_response_text})
-            audio_placeholder.audio(st.session_state.accumulated_audio, sample_rate=SAMPLE_RATE, format='audio/wav')
-
-        except Exception as e:
-            logger.error(f"Error during Streamlit streaming: {e}", exc_info=True)
-            full_response_text += f"\n\nError: {str(e)}"
+        if main_chain is None:
+            full_response_text = "LLM is not initialized. Please check API key setup."
             message_placeholder.markdown(full_response_text)
             st.session_state.chat_history.append({"role": "assistant", "content": full_response_text})
+        else:
+            try:
+                # Stream from the LangChain main_chain
+                for chunk_data in main_chain.stream(chain_input):
+                    if chunk_data["type"] == "text_token":
+                        full_response_text += chunk_data["content"]
+                        # Update text with a blinking cursor effect
+                        message_placeholder.markdown(full_response_text + "▌") 
+                    elif chunk_data["type"] == "audio_chunk":
+                        audio_segment = chunk_data["content"]
+                        if audio_segment.size > 0:
+                            st.session_state.accumulated_audio = np.concatenate((st.session_state.accumulated_audio, audio_segment), axis=None)
+                            audio_placeholder.audio(st.session_state.accumulated_audio, sample_rate=SAMPLE_RATE, format='audio/wav')
+                            logger.debug(f"Appended audio. New total audio samples: {st.session_state.accumulated_audio.shape[0]}")
+
+                # After stream completes, finalize the text and audio updates
+                message_placeholder.markdown(full_response_text) # Remove blinking cursor
+                st.session_state.chat_history.append({"role": "assistant", "content": full_response_text})
+                # Ensure final audio is played
+                audio_placeholder.audio(st.session_state.accumulated_audio, sample_rate=SAMPLE_RATE, format='audio/wav')
+                logger.info("Stream completed. Final audio played.")
+
+            except Exception as e:
+                logger.error(f"Error during Streamlit streaming: {e}", exc_info=True)
+                full_response_text += f"\n\nError: {str(e)}"
+                message_placeholder.markdown(full_response_text)
+                st.session_state.chat_history.append({"role": "assistant", "content": full_response_text})
