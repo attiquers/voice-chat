@@ -13,8 +13,7 @@ import av # PyAV, used by streamlit-webrtc
 from scipy.signal import resample # Replaced librosa for resampling
 
 # Streamlit WebRTC for audio input
-# Removed ClientSettings import as we will use default settings
-from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase
+from streamlit_webrtc import WebRtcMode, webrtc_streamer, AudioProcessorBase, ClientSettings
 
 # --- Import custom modules ---
 from kokoro_tts import KokoroTTS
@@ -236,7 +235,7 @@ with col1: # Chat Conversation Section
     if st.button("🗑️ Clear Chat", key="clear_chat_button"):
         st.session_state.chat_history = []
         st.session_state.voice_input_text = ""
-        st.experimental_rerun()
+        st.rerun() # Changed from st.experimental_rerun()
 
     # Text input for chat (still available as an alternative to voice)
     text_user_input = st.chat_input("Type your message...")
@@ -253,6 +252,7 @@ with col2: # Voice Input Section
         media_stream_constraints={"video": False, "audio": True},
         async_processing=True,
         # Removed client_settings argument entirely to avoid ClientSettings import issue
+        # This will use default client settings, which usually include common STUN servers.
     )
 
     # Control buttons for recording
@@ -263,7 +263,7 @@ with col2: # Voice Input Section
                     webrtc_ctx.audio_processor.stop_recording()
                 st.session_state.recording_active = False
                 st.session_state.processing_audio = True
-                st.experimental_rerun()
+                st.rerun() # Changed from st.experimental_rerun()
         else:
             st.info("Microphone is active, ready to record.")
             if st.button("🎤 Start Recording", key="start_record_button"):
@@ -271,7 +271,7 @@ with col2: # Voice Input Section
                     webrtc_ctx.audio_processor.start_recording()
                 st.session_state.recording_active = True
                 st.session_state.processing_audio = False
-                st.experimental_rerun()
+                st.rerun() # Changed from st.experimental_rerun()
     else:
         st.warning("Waiting for microphone access...")
 
@@ -293,7 +293,7 @@ with col2: # Voice Input Section
                     transcribed_text_placeholder.warning("No speech detected or transcription was empty.")
                     st.session_state.voice_input_text = ""
                 st.session_state.processing_audio = False
-                st.experimental_rerun()
+                st.rerun() # Changed from st.experimental_rerun()
             else:
                 transcribed_text_placeholder.warning("No audio recorded or Speech-to-Text model not loaded.")
                 st.session_state.processing_audio = False
