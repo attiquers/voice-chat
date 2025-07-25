@@ -61,7 +61,7 @@ def initialize_gemini_llm(api_key: str):
         return None
     try:
         llm = ChatGoogleGenerativeAI(
-            model="gemini-pro",  # You can choose other models like "gemini-1.5-pro", "gemini-1.5-flash"
+            model="gemini-1.5-flash",  # You can choose other models like "gemini-1.5-pro", "gemini-1.5-flash"
             temperature=0.7,
             streaming=True,
             google_api_key=api_key
