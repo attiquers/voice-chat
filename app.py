@@ -1,88 +1,62 @@
 import os
-import tempfile
 import streamlit as st
+from dotenv import load_dotenv
+from pydub import AudioSegment
 from vosk import Model, KaldiRecognizer
 import wave
-import subprocess
-from kokoro_tts import KokoroTTS
-from langchain_core.messages import HumanMessage
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_openai import ChatOpenAI
+import json
+from openai import OpenAI
 
-# Load environment variables
-from dotenv import load_dotenv
+# Load API key from .env
 load_dotenv()
+api_key = os.getenv("OPENROUTER_API_KEY")
+model_name = os.getenv("OPENROUTER_MODEL")
 
-# Initialize Kokoro TTS
-tts = KokoroTTS(model_path="models/kokoro-v1.0.int8.onnx")
+# Set OpenAI key for OpenRouter
+client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
-# Initialize Vosk STT
+# Initialize Vosk
 vosk_model = Model("models/vosk")
 
-# Initialize OpenRouter (LangChain with mistral)
-llm: BaseChatModel = ChatOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    model="mistralai/devstral-small-2505:free"
-)
-
-# WAV converter to Vosk-compatible format
-def convert_to_vosk_compatible(src_path, dst_path):
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-i", src_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-sample_fmt", "s16",
-        dst_path
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-# Transcribe WAV using Vosk
-def transcribe(wav_path):
-    wf = wave.open(wav_path, "rb")
+def transcribe(audio_path):
+    wf = wave.open(audio_path, "rb")
     rec = KaldiRecognizer(vosk_model, wf.getframerate())
-    rec.SetWords(True)
+
     result = ""
     while True:
         data = wf.readframes(4000)
         if len(data) == 0:
             break
         if rec.AcceptWaveform(data):
-            res = rec.Result()
-            result += res
-    final_res = rec.FinalResult()
-    result += final_res
-    import json
-    try:
-        return json.loads(final_res)["text"]
-    except:
-        return ""
+            result += json.loads(rec.Result()).get("text", "")
+    result += json.loads(rec.FinalResult()).get("text", "")
+    return result.strip()
 
-# Streamlit UI
-st.set_page_config(page_title="🎙 Voice Chat", layout="centered")
-st.title("🎙 Voice Chat with Kokoro + Vosk + OpenRouter")
+def convert_to_vosk_compatible(src_path, dst_path):
+    # Converts to mono 16kHz WAV using pydub
+    audio = AudioSegment.from_file(src_path)
+    audio = audio.set_channels(1).set_frame_rate(16000)
+    audio.export(dst_path, format="wav")
 
-# Record voice
-audio = st.audio_input("🎤 Record your question (Speak clearly)")
-if audio is not None:
-    st.audio(audio)
+def generate_reply(prompt):
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return completion.choices[0].message.content.strip()
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as inp:
-        inp.write(audio.getvalue())
-        inp.flush()
-        src = inp.name
+st.title("🎙️ Streamlit Voice Chat with Vosk + OpenRouter")
 
-    dst = src.replace(".wav", "_mono.wav")
-    convert_to_vosk_compatible(src, dst)
+audio_bytes = st.audio_input("Record something", format="audio/wav")
+if audio_bytes is not None:
+    with st.spinner("Processing audio..."):
+        with open("input.wav", "wb") as f:
+            f.write(audio_bytes.getvalue())
 
-    transcription = transcribe(dst)
-    st.markdown(f"**You said:** `{transcription}`")
+        convert_to_vosk_compatible("input.wav", "converted.wav")
+        transcript = transcribe("converted.wav")
+        st.markdown(f"**You said:** `{transcript}`")
 
-    if transcription:
-        with st.spinner("🧠 Thinking..."):
-            response = llm.invoke([HumanMessage(content=transcription)])
-        reply = response.content.strip()
-        st.markdown(f"**LLM says:** {reply}")
-
-        audio_bytes = tts.synthesize(reply, voice="am_amber")
-        st.audio(audio_bytes, format="audio/wav")
+        if transcript:
+            reply = generate_reply(transcript)
+            st.markdown(f"**Assistant:** {reply}")
