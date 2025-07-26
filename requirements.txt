@@ -13,3 +13,4 @@ langchain-openai
 kokoro-onnx
 soundfile
 vosk
+pydub
