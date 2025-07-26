@@ -2,12 +2,12 @@ streamlit
 numpy
 scipy
 soundfile
-vosk
-torch
 faster-whisper
+ctranslate2
 kokoro-onnx
+vosk
 langchain
 langchain-core
 langchain-community
+langchain-google-genai>=1.0.0
 langchain-openai
-python-dotenv

@@ -1,29 +1,14 @@
 # fastwhisper_stt.py
-import os
-import wave
-import json
-from vosk import Model, KaldiRecognizer
+from faster_whisper import WhisperModel
 
-class VoskSTT:
-    def __init__(self, model_path="models/vosk"):
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Vosk model not found at {model_path}. "
-                f"Make sure it’s downloaded and unzipped correctly."
-            )
-        self.model = Model(model_path)
+class FastWhisperSTT:
+    def __init__(self):
+        self.model = WhisperModel(
+            model_size_or_path="models/faster-whisper-tiny.en",
+            compute_type="int8",  # optimized for CPU
+            local_files_only=True
+        )
 
-    def transcribe(self, wav_path):
-        wf = wave.open(wav_path, "rb")
-        rec = KaldiRecognizer(self.model, wf.getframerate())
-
-        results = []
-        while True:
-            data = wf.readframes(4000)
-            if len(data) == 0:
-                break
-            if rec.AcceptWaveform(data):
-                results.append(json.loads(rec.Result()))
-        results.append(json.loads(rec.FinalResult()))
-
-        return " ".join([r.get("text", "") for r in results])
+    def transcribe(self, audio_path: str) -> str:
+        segments, _ = self.model.transcribe(audio_path)
+        return " ".join(segment.text for segment in segments)
