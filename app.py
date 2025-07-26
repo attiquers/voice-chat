@@ -6,39 +6,44 @@ import soundfile as sf
 
 from fastwhisper_stt import VoskSTT
 from kokoro_tts import KokoroTTS
-from langchain.chat_models import ChatGoogleGenerativeAI
+
+from langchain_community.chat_models import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
 
-# Initialize components
-st.set_page_config(page_title="Voice Chat", layout="centered")
-st.title("🗣️ Streamlit Voice Chat App")
 
-whisper = VoskSTT(model_path="models/vosk")
+# Page config
+st.set_page_config(page_title="🎙️ Local Voice Chat", layout="centered")
+st.title("🗣️ Local Voice Chat with Gemini + Vosk + Kokoro")
+
+# Initialize models
+stt = VoskSTT(model_path="models/vosk")
 tts = KokoroTTS()
 llm = ChatGoogleGenerativeAI(model="gemini-pro")
 
-# Capture user voice
-audio_input = st.audio_input("🎤 Speak something")
 
-if audio_input:
-    st.audio(audio_input)
+# Audio input
+audio_file = st.audio_input("🎤 Record your voice")
 
-    # Save recorded audio to temporary .wav file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
-        tmpfile.write(audio_input.getbuffer())
-        tmpfile.flush()
+if audio_file:
+    st.audio(audio_file)
 
-        # Transcribe with Vosk
-        transcription = whisper.transcribe(tmpfile.name)
-        st.success(f"📝 Transcription: {transcription}")
+    # Save to temp .wav file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(audio_file.getbuffer())
+        tmp.flush()
+        wav_path = tmp.name
 
-        # Generate LLM response
-        with st.spinner("Thinking..."):
-            response = llm([HumanMessage(content=transcription)])
-            text_reply = response.content
+    # Transcribe with STT
+    st.markdown("🧠 **Transcribing...**")
+    transcription = stt.transcribe(wav_path)
+    st.success(f"📝 You said: `{transcription}`")
 
-        st.markdown(f"💬 Gemini: {text_reply}")
+    # LLM response
+    with st.spinner("🤖 Gemini is thinking..."):
+        gemini_reply = llm([HumanMessage(content=transcription)]).content
+    st.markdown(f"💬 Gemini says: {gemini_reply}")
 
-        # Synthesize response using Kokoro
-        audio_data = tts.speak(text_reply)
-        st.audio(audio_data, format="audio/wav")
+    # TTS response
+    st.markdown("🗣️ **Speaking reply...**")
+    audio_output = tts.speak(gemini_reply)
+    st.audio(audio_output, format="audio/wav")
