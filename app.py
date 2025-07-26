@@ -1,45 +1,72 @@
-import os
 import streamlit as st
-import soundfile as sf
 import tempfile
-
-from fastwhisper_stt import VoskSTT
+import os
+from vosk import Model, KaldiRecognizer
+import wave
+import json
+from langchain_core.messages import HumanMessage
+from langchain_community.chat_models import ChatOpenAI
 from kokoro_tts import KokoroTTS
 
-# ✅ Correct import from `langchain_google_genai`
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema import HumanMessage
+# Paths
+VOSK_MODEL_PATH = "models/vosk"
+KOKORO_MODEL_PATH = "models/kokoro-v1.0.int8.onnx"
+KOKORO_VOICE_PATH = "models/voices-v1.0.bin"
 
-# Page configuration
-st.set_page_config(page_title="🎙️ Local Voice Chat", layout="centered")
-st.title("🧠 Voice Chat — Gemini, Vosk & Kokoro")
+# Initialize models
+stt_model = Model(VOSK_MODEL_PATH)
+tts_engine = KokoroTTS(KOKORO_MODEL_PATH, KOKORO_VOICE_PATH)
 
-# Load models
-stt = VoskSTT(model_path="models/vosk")
-tts = KokoroTTS()
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro")
+llm = ChatOpenAI(
+    openai_api_base="https://openrouter.ai/api/v1",
+    openai_api_key=os.environ.get("OPENROUTER_API_KEY"),
+    model="mistralai/mistral-7b-instruct",  # or "openai/gpt-3.5-turbo", etc.
+)
 
-# Record user message
-audio_file = st.audio_input("🎤 Record your voice")
+st.title("🗣️ Streamlit Voice Chat App (Offline STT, Kokoro TTS, OpenRouter LLM)")
 
-if audio_file:
-    st.audio(audio_file)  # play back recorded audio
+# Audio input
+audio_file = st.audio_input("🎙️ Record something", key="audio")
 
-    # Save WAV locally
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        tmp.write(audio_file.getbuffer())
-        tmp.flush()
-        wav_path = tmp.name
+if audio_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_file.read())
+        temp_audio_path = temp_audio.name
 
-    # Transcribe speech
-    transcription = stt.transcribe(wav_path)
-    st.success(f"You said: {transcription}")
+    # Transcribe with Vosk
+    wf = wave.open(temp_audio_path, "rb")
+    if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
+        st.error("Unsupported audio format. Please record in 16-bit mono WAV.")
+    else:
+        recognizer = KaldiRecognizer(stt_model, wf.getframerate())
+        transcription = ""
 
-    # Get Gemini LLM reply
-    response = llm.invoke([HumanMessage(content=transcription)])
-    gemini_reply = response.content
-    st.markdown(f"💬 Gemini: {gemini_reply}")
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            if recognizer.AcceptWaveform(data):
+                res = json.loads(recognizer.Result())
+                transcription += res.get("text", "") + " "
+        res = json.loads(recognizer.FinalResult())
+        transcription += res.get("text", "")
 
-    # Convert reply to speech
-    audio_data = tts.speak(gemini_reply)
-    st.audio(audio_data, format="audio/wav")
+        st.subheader("📝 Transcription")
+        st.write(transcription)
+
+        if transcription.strip():
+            # LLM response
+            response = llm.invoke([HumanMessage(content=transcription)])
+            reply = response.content.strip()
+
+            st.subheader("🤖 LLM Response")
+            st.write(reply)
+
+            # TTS synthesis
+            audio_path = tts_engine.synthesize(reply)
+            if audio_path:
+                st.audio(audio_path, format="audio/wav")
+            else:
+                st.error("❌ TTS failed to generate audio.")
+        else:
+            st.warning("No transcription found.")
