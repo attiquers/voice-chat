@@ -1,49 +1,45 @@
-# app.py
-
+import os
 import streamlit as st
-import tempfile
 import soundfile as sf
+import tempfile
 
 from fastwhisper_stt import VoskSTT
 from kokoro_tts import KokoroTTS
 
-from langchain_community.chat_models import ChatGoogleGenerativeAI
+# ✅ Correct import from `langchain_google_genai`
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
 
-
-# Page config
+# Page configuration
 st.set_page_config(page_title="🎙️ Local Voice Chat", layout="centered")
-st.title("🗣️ Local Voice Chat with Gemini + Vosk + Kokoro")
+st.title("🧠 Voice Chat — Gemini, Vosk & Kokoro")
 
-# Initialize models
+# Load models
 stt = VoskSTT(model_path="models/vosk")
 tts = KokoroTTS()
-llm = ChatGoogleGenerativeAI(model="gemini-pro")
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro")
 
-
-# Audio input
+# Record user message
 audio_file = st.audio_input("🎤 Record your voice")
 
 if audio_file:
-    st.audio(audio_file)
+    st.audio(audio_file)  # play back recorded audio
 
-    # Save to temp .wav file
+    # Save WAV locally
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
         tmp.write(audio_file.getbuffer())
         tmp.flush()
         wav_path = tmp.name
 
-    # Transcribe with STT
-    st.markdown("🧠 **Transcribing...**")
+    # Transcribe speech
     transcription = stt.transcribe(wav_path)
-    st.success(f"📝 You said: `{transcription}`")
+    st.success(f"You said: {transcription}")
 
-    # LLM response
-    with st.spinner("🤖 Gemini is thinking..."):
-        gemini_reply = llm([HumanMessage(content=transcription)]).content
-    st.markdown(f"💬 Gemini says: {gemini_reply}")
+    # Get Gemini LLM reply
+    response = llm.invoke([HumanMessage(content=transcription)])
+    gemini_reply = response.content
+    st.markdown(f"💬 Gemini: {gemini_reply}")
 
-    # TTS response
-    st.markdown("🗣️ **Speaking reply...**")
-    audio_output = tts.speak(gemini_reply)
-    st.audio(audio_output, format="audio/wav")
+    # Convert reply to speech
+    audio_data = tts.speak(gemini_reply)
+    st.audio(audio_data, format="audio/wav")
