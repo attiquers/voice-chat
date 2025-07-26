@@ -1,72 +1,88 @@
 import os
-import wave
-import json
 import tempfile
 import streamlit as st
-import soundfile as sf
-from dotenv import load_dotenv
 from vosk import Model, KaldiRecognizer
-from langchain.chat_models import ChatOpenAI
-from langchain_core.messages import HumanMessage
+import wave
+import subprocess
 from kokoro_tts import KokoroTTS
+from langchain_core.messages import HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_openai import ChatOpenAI
 
-# Load API key
+# Load environment variables
+from dotenv import load_dotenv
 load_dotenv()
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Init components
-st.set_page_config(page_title="Voice Chat (Local STT + TTS + OpenRouter LLM)", layout="centered")
-st.title("🎙️ Local Voice Chat — Vosk + Kokoro + OpenRouter")
-
-stt_model = Model("models/vosk")
+# Initialize Kokoro TTS
 tts = KokoroTTS(model_path="models/kokoro-v1.0.int8.onnx")
-llm = ChatOpenAI(
-    openai_api_key=OPENROUTER_KEY,
-    openai_api_base="https://openrouter.ai/api/v1",
-    model="mistralai/devstral-small-2505:free",
-    temperature=0.7
+
+# Initialize Vosk STT
+vosk_model = Model("models/vosk")
+
+# Initialize OpenRouter (LangChain with mistral)
+llm: BaseChatModel = ChatOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    model="mistralai/devstral-small-2505:free"
 )
 
-def convert_to_vosk_compatible(src, dst):
-    data, sr = sf.read(src)
-    if data.ndim > 1:
-        data = data[:, 0]
-    sf.write(dst, data, sr, subtype="PCM_16")
+# WAV converter to Vosk-compatible format
+def convert_to_vosk_compatible(src_path, dst_path):
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", src_path,
+        "-ar", "16000",
+        "-ac", "1",
+        "-sample_fmt", "s16",
+        dst_path
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def transcribe(path: str) -> str:
-    wf = wave.open(path, "rb")
-    rec = KaldiRecognizer(stt_model, wf.getframerate())
-    text = ""
+# Transcribe WAV using Vosk
+def transcribe(wav_path):
+    wf = wave.open(wav_path, "rb")
+    rec = KaldiRecognizer(vosk_model, wf.getframerate())
+    rec.SetWords(True)
+    result = ""
     while True:
-        chunk = wf.readframes(4000)
-        if not chunk:
+        data = wf.readframes(4000)
+        if len(data) == 0:
             break
-        if rec.AcceptWaveform(chunk):
-            text += json.loads(rec.Result()).get("text", "") + " "
-    text += json.loads(rec.FinalResult()).get("text", "")
-    return text.strip()
+        if rec.AcceptWaveform(data):
+            res = rec.Result()
+            result += res
+    final_res = rec.FinalResult()
+    result += final_res
+    import json
+    try:
+        return json.loads(final_res)["text"]
+    except:
+        return ""
 
-# UI: audio input
-audio = st.audio_input("🎤 Record your question (Speak clearly)", type="wav")
+# Streamlit UI
+st.set_page_config(page_title="🎙 Voice Chat", layout="centered")
+st.title("🎙 Voice Chat with Kokoro + Vosk + OpenRouter")
+
+# Record voice
+audio = st.audio_input("🎤 Record your question (Speak clearly)")
 if audio is not None:
     st.audio(audio)
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as inp:
         inp.write(audio.getvalue())
         inp.flush()
         src = inp.name
+
     dst = src.replace(".wav", "_mono.wav")
     convert_to_vosk_compatible(src, dst)
 
     transcription = transcribe(dst)
-    st.markdown(f"**You said:** {transcription}")
+    st.markdown(f"**You said:** `{transcription}`")
 
-    # LLM response
     if transcription:
         with st.spinner("🧠 Thinking..."):
-            resp = llm.invoke([HumanMessage(content=transcription)])
-        reply = resp.content.strip()
+            response = llm.invoke([HumanMessage(content=transcription)])
+        reply = response.content.strip()
         st.markdown(f"**LLM says:** {reply}")
 
-        # Synthesize with chosen voice preset
-        audio_bytes = tts.synthesize(reply, voice="am_amber")  # use voice like "am_amber"
+        audio_bytes = tts.synthesize(reply, voice="am_amber")
         st.audio(audio_bytes, format="audio/wav")
