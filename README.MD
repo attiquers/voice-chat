@@ -11,10 +11,6 @@ This is a voice-enabled assistant built with Streamlit, Faster-Whisper for Speec
 * **🚀 Automatic Optimization:** Detects NVIDIA GPUs (CUDA) and configures STT and TTS models for accelerated performance. Falls back gracefully to CPU if no GPU is found or configured.
 * **📜 Chat History:** Keeps track of your conversation with the AI.
 
-## Demo
-
-(You can add a GIF or screenshot of the app running here if you wish)
-
 ## Setup and Installation
 
 ### Prerequisites
