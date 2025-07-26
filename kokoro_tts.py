@@ -6,12 +6,32 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# --- GPU Detection and Conditional Import Setup ---
+HAS_GPU_TTS = False # Using a different variable name to avoid conflict if both files are imported
+try:
+    import torch
+    if torch.cuda.is_available():
+        # Only try to import onnxruntime-gpu if CUDA is available
+        try:
+            import onnxruntime as rt
+            if "CUDAExecutionProvider" in rt.get_available_providers():
+                HAS_GPU_TTS = True
+                logger.info("GPU (CUDA) detected and ONNX Runtime CUDA provider available. KokoroTTS will attempt to use it.")
+            else:
+                logger.info("CUDA GPU detected, but ONNX Runtime CUDA provider not available. KokoroTTS will use CPU.")
+        except ImportError:
+            logger.info("CUDA GPU detected, but onnxruntime-gpu not installed. KokoroTTS will use CPU.")
+    else:
+        logger.info("No CUDA GPU detected. KokoroTTS will use CPU.")
+except ImportError:
+    logger.info("PyTorch not found. KokoroTTS will use CPU.")
+
+
 # Ensure kokoro_onnx is available
 try:
     from kokoro_onnx import Kokoro
 except ImportError:
     logger.error("The 'kokoro_onnx' library is not installed. Please install it as per the instructions in the original Gradio app setup.")
-    # Fallback mock class for local development if kokoro_onnx isn't strictly needed for all tests
     class MockKokoro:
         def __init__(self, *args, **kwargs):
             logger.warning("Using MockKokoro as kokoro_onnx is not found.")
@@ -22,22 +42,31 @@ except ImportError:
 
 
 class KokoroTTS:
-    def __init__(self, model_path: str = "models/kokoro-v1.0.int8.onnx", 
+    def __init__(self, model_path: str = "models/kokoro-v1.0.int8.onnx",
                  voices_path: str = "models/voices-v1.0.bin"):
         """Initialize Kokoro ONNX TTS model"""
-        # Ensure model and voices paths exist for deployment
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found: {model_path}")
         if not os.path.exists(voices_path):
             raise FileNotFoundError(f"Voices file not found: {voices_path}")
 
         try:
-            self.kokoro = Kokoro(model_path, voices_path)
+            if HAS_GPU_TTS:
+                # Prioritize CUDA if available and installed
+                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            else:
+                providers = ["CPUExecutionProvider"]
+
+            logger.info(f"Initializing Kokoro TTS with ONNX Runtime providers: {providers}")
+            # This line assumes Kokoro accepts `providers` argument.
+            # If it doesn't, it will likely ignore it, but the model will still use
+            # onnxruntime-gpu if it's installed and available for auto-detection.
+            self.kokoro = Kokoro(model_path, voices_path, providers=providers)
             logger.info("Kokoro TTS initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro TTS: {e}")
             raise
-    
+
     def synthesize(self, text: str, voice_id: str = "af_heart", speed: float = 1.0) -> np.ndarray:
         """Synthesize speech from text"""
         try:
@@ -50,11 +79,10 @@ class KokoroTTS:
             import traceback
             logger.error(traceback.format_exc())
             return np.array([])
-    
+
     def get_available_voices(self) -> list:
-        # This method might need to be implemented in kokoro_onnx or hardcoded if not dynamic
         return ["af_heart", "af_sky", "am_mystic"]
-    
+
     def stream_synthesize(self, text: str, voice_id: str = "af_heart", chunk_size: int = 1024) -> Iterator[np.ndarray]:
         """Stream synthesize speech from text (example, actual streaming for Kokoro might be different)"""
         audio = self.synthesize(text, voice_id)

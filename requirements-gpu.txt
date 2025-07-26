@@ -2,10 +2,10 @@ streamlit
 numpy
 scipy
 soundfile
-faster-whisper
-ctranslate2
+faster-whisper[cuda]
 kokoro-onnx
-vosk
+onnxruntime-gpu
+torch
 langchain
 langchain-core
 langchain-community

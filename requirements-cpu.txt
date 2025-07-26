@@ -1,0 +1,12 @@
+streamlit
+numpy
+scipy
+soundfile
+faster-whisper
+ctranslate2
+kokoro-onnx
+langchain
+langchain-core
+langchain-community
+langchain-google-genai>=1.0.0
+langchain-openai
