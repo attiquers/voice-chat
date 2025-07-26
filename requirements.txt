@@ -1,17 +1,34 @@
+# Core app
 streamlit
 numpy
-av==14.0.0 # <--- Changed to 14.0.0 to satisfy aiortc/streamlit-webrtc
 scipy
-faster-whisper
-streamlit-webrtc==0.63.0
 torch
+
+# Audio handling
+soundfile
+pydub
+vosk
+kokoro-onnx
+
+# Optional: lightweight real-time audio (streamlit-webrtc, if needed)
+av==14.0.0
+streamlit-webrtc==0.63.0
+
+# Language models via LangChain + OpenRouter
 langchain
 langchain-core
 langchain-community
-langchain-google-genai>=1.0.0
 langchain-openai
-kokoro-onnx
-soundfile
-vosk
-pydub
-pyaudioop
+
+# Faster Whisper STT (only if you're using Whisper optionally)
+faster-whisper
+
+# Optional: Gemini support (if needed later)
+langchain-google-genai>=1.0.0
+
+# Not needed:
+# - pyaudioop is not a real pip package (likely meant `pyaudio` or internal code)
+# - `pyaudio` is not used unless you’re recording from mic live (you’re not)
+
+# Replace with this if using audio from mic:
+# pyaudio
