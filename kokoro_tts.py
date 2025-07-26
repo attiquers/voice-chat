@@ -51,17 +51,16 @@ class KokoroTTS:
             raise FileNotFoundError(f"Voices file not found: {voices_path}")
 
         try:
+            # We no longer pass 'providers' directly to Kokoro as it doesn't accept it.
+            # Instead, we rely on kokoro_onnx automatically picking up onnxruntime-gpu
+            # if it's installed and available in the environment.
             if HAS_GPU_TTS:
-                # Prioritize CUDA if available and installed
-                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                 logger.info("KokoroTTS is expecting onnxruntime-gpu to be auto-detected by kokoro_onnx.")
             else:
-                providers = ["CPUExecutionProvider"]
+                 logger.info("KokoroTTS will use CPU for ONNX Runtime.")
 
-            logger.info(f"Initializing Kokoro TTS with ONNX Runtime providers: {providers}")
-            # This line assumes Kokoro accepts `providers` argument.
-            # If it doesn't, it will likely ignore it, but the model will still use
-            # onnxruntime-gpu if it's installed and available for auto-detection.
-            self.kokoro = Kokoro(model_path, voices_path, providers=providers)
+            # THIS IS THE CRUCIAL LINE: NO 'providers=providers' HERE
+            self.kokoro = Kokoro(model_path, voices_path) 
             logger.info("Kokoro TTS initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro TTS: {e}")
