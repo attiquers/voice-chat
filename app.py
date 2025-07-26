@@ -57,7 +57,7 @@ class AudioFrameProcessor(AudioProcessorBase):
         """Receives an audio frame from the WebRTC stream and buffers it if recording."""
         if self.is_recording:
             # Removed 'format="s16"' as it causes TypeError in some av versions
-            audio_array = frame.to_ndarray(layout="mono").flatten().astype(np.float32) / 32768.0
+            audio_array = frame.to_ndarray().flatten().astype(np.float32) / 32768.0
             self.audio_buffer.append(audio_array)
         return frame
 
