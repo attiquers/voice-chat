@@ -57,7 +57,7 @@ chain = RunnableLambda(lambda x: llm.invoke([HumanMessage(content=x["text"])]))
 # === Streamlit UI ===
 st.title("🎤 Voice Chat with OpenRouter + Kokoro + Vosk")
 
-audio_bytes = st.audio_input("Record your question", format="audio/wav")
+audio_bytes = st.audio_input("Record your question")
 
 if audio_bytes:
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
